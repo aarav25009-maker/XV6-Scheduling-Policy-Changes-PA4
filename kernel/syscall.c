@@ -113,6 +113,10 @@ extern uint64 sys_getcpu(void);
 extern uint64 sys_schedinfo(void);
 extern uint64 sys_setslice(void);
 extern uint64 sys_forkwatch(void);
+extern uint64 sys_sched_setaffinity(void);
+extern uint64 sys_sched_getaffinity(void);
+extern uint64 sys_schedpolicy(void);
+extern uint64 sys_setprio(void);
 // An array mapping syscall numbers from syscall.h
 // to the function that handles the system call.
 static uint64 (*syscalls[])(void) = {
@@ -148,7 +152,11 @@ static uint64 (*syscalls[])(void) = {
   [SYS_getcpu] = sys_getcpu,
   [SYS_schedinfo] = sys_schedinfo,
   [SYS_setslice] = sys_setslice,
-  [SYS_forkwatch] = sys_forkwatch
+  [SYS_forkwatch] = sys_forkwatch,
+  [SYS_sched_setaffinity] sys_sched_setaffinity,
+  [SYS_sched_getaffinity] sys_sched_getaffinity,
+  [SYS_schedpolicy]       sys_schedpolicy,
+  [SYS_setprio]           sys_setprio,
   // clang-format on
 };
 

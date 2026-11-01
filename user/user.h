@@ -37,6 +37,10 @@ int getcpu(void);
 int schedinfo(int pid, struct schedinfo *);
 int setslice(int pid, int slicetime);
 int forkwatch(int on);
+int sched_setaffinity(int pid, int mask);
+int sched_getaffinity(int pid);
+int schedpolicy(int policy);
+int setprio(int pid, int prio);
 //CHANGE ENDS!
 
 // ulib.c

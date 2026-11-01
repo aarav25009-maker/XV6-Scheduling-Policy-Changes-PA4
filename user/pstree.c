@@ -6,7 +6,7 @@
 int main(int argc, char *argv[]) {
   int p_flag = 0;
   int m_flag = 0;
-  int detect = 0;
+  
 
 
   for (int i = 1; i < argc; i++) {
@@ -17,11 +17,11 @@ int main(int argc, char *argv[]) {
       for(int j = 1; arg[j] != '\0'; j++) {
         if(arg[j] == 'p') {
           p_flag = 1;
-          detect++;
+          
         }
         else if (arg[j] == 'm') {
           m_flag = 1;
-          detect++;
+          
         }
         else {
          printf("Command not recognized!!\n");

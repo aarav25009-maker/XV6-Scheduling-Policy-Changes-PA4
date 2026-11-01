@@ -103,7 +103,7 @@ usertrap(void)
       (*p).used++;
     }
 
-    if((*p).used >= (*p).slice){
+    if((*p).used >= (*p).slice || !((*p).affinity & (1 << cpuid()))){
       should_yield = 1;
     }
     release(&(*p).lock);
@@ -195,7 +195,7 @@ kerneltrap()
       (*p).used++;
     }
 
-    if ((*p).used >= (*p).slice) {
+    if ((*p).used >= (*p).slice || !((*p).affinity & (1 << cpuid()))) {
       should_yield = 1;
     }
 

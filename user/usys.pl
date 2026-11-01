@@ -53,3 +53,7 @@ entry("getcpu");
 entry("schedinfo");
 entry("setslice");
 entry("forkwatch");
+entry("sched_setaffinity");
+entry("sched_getaffinity");
+entry("schedpolicy");
+entry("setprio");

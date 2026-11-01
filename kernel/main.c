@@ -40,6 +40,6 @@ main()
     trapinithart(); // install kernel trap vector
     plicinithart(); // ask PLIC for device interrupts
   }
-
+  __atomic_fetch_or(&booted_harts, 1 << cpuid(), __ATOMIC_SEQ_CST);
   scheduler();
 }

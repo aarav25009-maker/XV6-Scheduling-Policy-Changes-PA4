@@ -10,6 +10,9 @@
 struct cpu cpus[NCPU];
 
 struct proc proc[NPROC];
+int booted_harts = 0;
+int sched_policy = POLICY_RR;
+static int prio_cursor[3];
 
 struct proc *initproc;
 
@@ -111,7 +114,7 @@ static struct proc *
 allocproc(void)
 {
   struct proc *p;
-
+  
   for (p = proc; p < &proc[NPROC]; p++) {
     acquire(&p->lock);
     if (p->state == UNUSED) {
@@ -135,6 +138,8 @@ found:
   (*p).ctime = 0;
   (*p).ftime = 0;
   (*p).firstcpu = -1;
+  (*p).affinity = (1 << NCPU) - 1;
+  (*p).prio = PRIO_NORMAL;
   //PA4 ENDS !!
 
   // Allocate a trapframe page.
@@ -275,9 +280,11 @@ kfork(void)
   struct proc *p = myproc();
 
   //PA4!!
-  int slice_to_copy;
+  int slice_to_copy, affinity_to_copy, prio_to_copy;
   acquire(&(*p).lock);
   slice_to_copy = (*p).slice;
+  affinity_to_copy = (*p).affinity;
+  prio_to_copy = (*p).prio;
   release(&(*p).lock);
   //PA4 ENDS!!
 
@@ -310,6 +317,8 @@ kfork(void)
 
   //PA4!!
   (*np).slice = slice_to_copy; //Inherit the slice.
+  (*np).affinity = affinity_to_copy;
+  (*np).prio = prio_to_copy;
   //PA4 ENDS!!
 
   pid = np->pid;
@@ -325,7 +334,7 @@ kfork(void)
   acquire(&tickslock); //PA4
   acquire(&np->lock);
   np->state = RUNNABLE;
-  (*np).ctime = ticks; // PA4
+  (*np).ctime = __atomic_load_n(&ticks, __ATOMIC_SEQ_CST); // PA4
   release(&np->lock);
   release(&tickslock); // PA4
 
@@ -453,53 +462,79 @@ kwait(uint64 addr)
 //  - swtch to start running that process.
 //  - eventually that process transfers control
 //    via swtch back to the scheduler.
+// PRIO policy: run the highest-priority RUNNABLE process this hart may run.
+static int
+prio_run_one(struct cpu *c, int id)
+{
+  struct proc *p;
+
+  for(;;){
+    int best = 3;
+    for(p = proc; p < &proc[NPROC]; p++){
+      acquire(&p->lock);
+      if(p->state == RUNNABLE && (p->affinity & (1 << id)) && p->prio < best)
+        best = p->prio;
+      release(&p->lock);
+    }
+    if(best == 3)
+      return 0;
+
+    int start = __atomic_load_n(&prio_cursor[best], __ATOMIC_RELAXED);
+    for(int i = 1; i <= NPROC; i++){
+      int idx = (start + i) % NPROC;
+      p = &proc[idx];
+      acquire(&p->lock);
+      if(p->state == RUNNABLE && (p->affinity & (1 << id)) && p->prio == best){
+        __atomic_store_n(&prio_cursor[best], idx, __ATOMIC_RELAXED);
+        p->state = RUNNING;
+        (*p).nsched++;
+        (*p).lastcpu = id;
+        (*p).used = 0;
+        c->proc = p;
+        swtch(&c->context, &p->context);
+        mycpu()->intena = 0;
+        c->proc = 0;
+        release(&p->lock);
+        return 1;
+      }
+      release(&p->lock);
+    }
+  }
+}
+
 void
 scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
+  int id = cpuid();
 
   c->proc = 0;
-  for (;;) {
-    // The most recent process to run may have had interrupts
-    // turned off; enable them to avoid a deadlock if all
-    // processes are waiting. Then turn them back off
-    // to avoid a possible race between an interrupt
-    // and wfi.
+  for(;;){
     intr_on();
     intr_off();
 
     int found = 0;
-    for (p = proc; p < &proc[NPROC]; p++) {
-      acquire(&p->lock);
-      if (p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-
-        //PA4!!
-        (*p).nsched++;
-        (*p).lastcpu = cpuid();
-        (*p).used = 0; //RESET. No slice has been used here.
-        //PA4!!
-
-        c->proc = p;
-        swtch(&c->context, &p->context);
-
-
-        // Don't re-enable interrupts on release.
-        mycpu()->intena = 0;
-
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
-        found = 1;
+    if(__atomic_load_n(&sched_policy, __ATOMIC_SEQ_CST) == POLICY_PRIO){
+      found = prio_run_one(c, id);
+    } else {
+      for(p = proc; p < &proc[NPROC]; p++){
+        acquire(&p->lock);
+        if(p->state == RUNNABLE && (p->affinity & (1 << id))){
+          p->state = RUNNING;
+          (*p).nsched++;
+          (*p).lastcpu = id;
+          (*p).used = 0;
+          c->proc = p;
+          swtch(&c->context, &p->context);
+          mycpu()->intena = 0;
+          c->proc = 0;
+          found = 1;
+        }
+        release(&p->lock);
       }
-      release(&p->lock);
     }
-    if (found == 0) {
-      // nothing to run; stop running on this core until an interrupt.
+    if(found == 0){
       asm volatile("wfi");
     }
   }
@@ -554,10 +589,7 @@ forkret(void)
 
   // Still holding p->lock from scheduler.
   //PA4 BEGINS!
-  acquire(&tickslock);
-  (*p).ftime = ticks;
-  release(&tickslock);
-
+  (*p).ftime = __atomic_load_n(&ticks, __ATOMIC_SEQ_CST);
   push_off();
   (*p).firstcpu = cpuid();
   pop_off();
@@ -571,7 +603,7 @@ forkret(void)
   //PA4 BEGINS!!
   acquire(&printlock);
   if(can_print){
-    printk("pid %d: first tick on Hart %d, %d Ticks after fork\n", pid_l, fcpu_l, time_l);
+    printk("pid %d: first run on hart %d, %d ticks after fork\n", pid_l, fcpu_l, time_l);
   }
   release(&printlock);
   //PA4 ENDS!!

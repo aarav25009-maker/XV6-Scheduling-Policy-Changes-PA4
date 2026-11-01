@@ -335,6 +335,9 @@ sys_schedinfo(void) {
       si.ctime = (*p).ctime;
       si.ftime = (*p).ftime;
       si.firstcpu = (*p).firstcpu;
+      si.affinity = (*p).affinity & __atomic_load_n(&booted_harts, __ATOMIC_SEQ_CST);
+      si.prio = (*p).prio;
+      safestrcpy(si.name, (*p).name, sizeof(si.name));
       release(&(*p).lock);
       found = 1;
       break;
@@ -406,4 +409,103 @@ sys_forkwatch(void) {
   release(&printlock);
 
   return prev_val;
+}
+
+uint64
+sys_sched_setaffinity(void)
+{
+  int pid, mask;
+  struct proc *p;
+  int booted = __atomic_load_n(&booted_harts, __ATOMIC_SEQ_CST);
+
+  argint(0, &pid);
+  argint(1, &mask);
+  if((mask & booted) == 0)
+    return -1;
+  mask &= booted;
+  if(pid == 0)
+    pid = myproc()->pid;
+
+  for(p = proc; p < &proc[NPROC]; p++){
+    acquire(&p->lock);
+    if(p->pid == pid && p->state != UNUSED){
+      p->affinity = mask;
+      release(&p->lock);
+      if(p == myproc()){
+        push_off();
+        int id = cpuid();
+        pop_off();
+        if(!(mask & (1 << id)))
+          yield();
+      }
+      return 0;
+    }
+    release(&p->lock);
+  }
+  return -1;
+}
+
+uint64
+sys_sched_getaffinity(void)
+{
+  int pid, mask;
+  struct proc *p;
+  int booted = __atomic_load_n(&booted_harts, __ATOMIC_SEQ_CST);
+
+  argint(0, &pid);
+  if(pid == 0)
+    pid = myproc()->pid;
+
+  for(p = proc; p < &proc[NPROC]; p++){
+    acquire(&p->lock);
+    if(p->pid == pid && p->state != UNUSED){
+      mask = p->affinity & booted;
+      release(&p->lock);
+      return mask;
+    }
+    release(&p->lock);
+  }
+  return -1;
+}
+
+uint64
+sys_schedpolicy(void)
+{
+  int policy;
+  argint(0, &policy);
+
+  if(policy == -1)
+    return __atomic_load_n(&sched_policy, __ATOMIC_SEQ_CST);
+  if(policy != POLICY_RR && policy != POLICY_PRIO)
+    return -1;
+  return __atomic_exchange_n(&sched_policy, policy, __ATOMIC_SEQ_CST);
+}
+
+uint64
+sys_setprio(void)
+{
+  int pid, prio, old;
+  struct proc *p;
+
+  argint(0, &pid);
+  argint(1, &prio);
+  if(prio < PRIO_HIGH || prio > PRIO_LOW)
+    return -1;
+  if(pid == 0)
+    pid = myproc()->pid;
+
+  for(p = proc; p < &proc[NPROC]; p++){
+    acquire(&p->lock);
+    if(p->pid == pid && p->state != UNUSED){
+      old = p->prio;
+      p->prio = prio;
+      release(&p->lock);
+      if(p == myproc() && prio > old &&
+         __atomic_load_n(&sched_policy, __ATOMIC_SEQ_CST) == POLICY_PRIO)
+        yield();
+      return 0;
+    }
+    release(&p->lock);
+  }
+  return -1;
 }

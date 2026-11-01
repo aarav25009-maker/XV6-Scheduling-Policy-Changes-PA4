@@ -155,6 +155,10 @@ UPROGS=\
 	$U/_whereami\
 	$U/_slicetest\
 	$U/_forkrace\
+	$U/_taskset\
+	$U/_spin\
+	$U/_priotest\
+	$U/_schedctl\
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)
