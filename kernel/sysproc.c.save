@@ -1,0 +1,302 @@
+#include "types.h"
+#include "riscv.h"
+#include "defs.h"
+#include "param.h"
+#include "memlayout.h"
+#include "spinlock.h"
+#include "proc.h"
+#include "vm.h"
+
+uint64
+sys_exit(void)
+{
+  int n;
+  argint(0, &n);
+  kexit(n);
+  return 0; // not reached
+}
+
+uint64
+sys_getpid(void)
+{
+  return myproc()->pid;
+}
+
+uint64
+sys_fork(void)
+{
+  return kfork();
+}
+
+uint64
+sys_wait(void)
+{
+  uint64 p;
+  argaddr(0, &p);
+  return kwait(p);
+}
+
+uint64
+sys_sbrk(void)
+{
+  uint64 addr;
+  int t;
+  int n;
+
+  argint(0, &n);
+  argint(1, &t);
+  addr = myproc()->sz;
+
+  if (t == SBRK_EAGER || n < 0) {
+    if (growproc(n) < 0) {
+      return -1;
+    }
+  } else {
+    // Lazily allocate memory for this process: increase its memory
+    // size but don't allocate memory. If the processes uses the
+    // memory, vmfault() will allocate it.
+    if (addr + n < addr)
+      return -1;
+    if (addr + n > TRAPFRAME)
+      return -1;
+    myproc()->sz += n;
+  }
+  return addr;
+}
+
+uint64
+sys_pause(void)
+{
+  int n;
+  uint ticks0;
+
+  argint(0, &n);
+  if (n < 0)
+    n = 0;
+  acquire(&tickslock);
+  ticks0 = ticks;
+  while (ticks - ticks0 < n) {
+    if (killed(myproc())) {
+      release(&tickslock);
+      return -1;
+    }
+    sleep_prepare(&ticks);
+    release(&tickslock);
+    sleep();
+    acquire(&tickslock);
+  }
+  release(&tickslock);
+  return 0;
+}
+
+uint64
+sys_kill(void)
+{
+  int pid;
+
+  argint(0, &pid);
+  return kkill(pid);
+}
+
+// return how many clock tick interrupts have occurred
+// since start.
+uint64
+sys_uptime(void)
+{
+  uint xticks;
+
+  acquire(&tickslock);
+  xticks = ticks;
+  release(&tickslock);
+  return xticks;
+}
+
+//CHANGED HERE!!
+uint64
+sys_getuptime(void)
+{
+  uint total_ticks;
+
+  acquire(&tickslock);
+  total_ticks = ticks;
+  release(&tickslock);
+  return total_ticks;
+}
+
+extern struct proc proc[NPROC];
+
+uint64
+sys_activecount(void)
+{
+  struct proc *p; // A pointer to the struct proc, defined within proc.h
+  uint count = 0;
+  for (p = proc; p < &proc[NPROC]; p++) { // Iterates over process table
+    acquire(&(*p).lock);
+    if ((*p).state != UNUSED) {
+      count++;
+    }
+    release(&(*p).lock);
+  }
+
+  return count;
+}
+
+uint64
+sys_lineage(void)
+{
+  int pid;
+  argint(0, &pid);
+
+  struct proc *p;
+  struct proc *pidfound = 0;
+
+  for (p = proc; p < &proc[NPROC]; p++) {
+    acquire(&(*p).lock);
+    if ((*p).state != UNUSED && (*p).pid == pid) {
+      pidfound = p;
+      release(&(*p).lock);
+      break;
+    }
+    release(&(*p).lock);
+  }
+
+  if (pidfound == 0) {
+    return -1;
+  }
+
+  int ancestors = 0;
+  struct proc *curr_pid = pidfound;
+
+  while (curr_pid != 0) {
+    acquire(&(*curr_pid).lock);
+
+    if ((*curr_pid).state == UNUSED) {
+      release(&(*curr_pid).lock);
+      break;
+    }
+
+    char name[16];
+    safestrcpy(name, (*curr_pid).name, 16);
+    int p_val = (*curr_pid).pid;
+    struct proc *parent = (*curr_pid).parent;
+
+    release(&(*curr_pid).lock);
+
+    printk("PID %d : %s\n", p_val, name);
+
+    ancestors++;
+    curr_pid = parent;
+  }
+
+  return ancestors;
+}
+
+uint64
+sys_getprocsize(void)
+{
+  int pid;
+  argint(0, &pid);
+
+  struct proc *p;
+  uint size = -1;
+  for(p = proc; p < &proc[NPROC]; p++) {
+    acquire(&(*p).lock);
+    if ((*p).state != UNUSED && (*p).pid == pid) {
+      size = (*p).sz;
+      release(&(*p).lock);
+      break;
+    }
+    release(&(*p).lock);
+  }
+  return size;
+}
+
+uint64
+sys_familyheadcount(void)
+{
+  int pid;
+  argint(0, &pid);
+  struct proc *p;
+  int count = 0;
+  for (p = proc; p < &proc[NPROC]; p++) {
+    acquire(&(*p).lock);
+    if ((*p).state != UNUSED && (*p).parent != 0) {
+      if ((*((*p).parent)).pid == pid) {
+        count++;
+      }
+    }
+    release(&(*p).lock);
+  }
+  return count;
+}
+//BONUS
+
+uint64
+sys_gettree(void)
+{
+  int pid;
+  uint64 d_ptr;
+
+  argint(0, &pid);
+  argaddr(1, &d_ptr);
+
+  struct my_data my_data[NPROC];
+
+  struct proc *p;
+  struct proc *pidfound = 0;
+
+  for(p = proc; p < &proc[NPROC]; p++) {
+    acquire(&(*p).lock);
+    if ((*p).state != UNUSED && (*p).pid == pid) {
+      pidfound = p;
+      release(&(*p).lock);
+      break;
+    }
+    release(&(*p).lock);
+  }
+
+  if (pidfound == 0) {
+    return -1;
+  }
+
+  int counted = 0;
+  struct proc *curr_pid = pidfound;
+  struct my_data *m = my_data;
+
+  for(int i = 0; i < NPROC; i++) {
+    my_data[i].pid = 0;
+    my_data[i].sz = 0;
+    my_data[i].name[0] = '\0';
+  }
+
+  while(curr_pid != 0) {
+    acquire(&(*curr_pid).lock);
+
+    if((*curr_pid).state == UNUSED) {
+      release(&(*curr_pid).lock);
+      break;
+    }
+
+    (*m).pid = (*curr_pid).pid;
+    (*m).sz = (*curr_pid).sz;
+    safestrcpy((*m).name, (*curr_pid).name, sizeof((*m).name));
+
+    struct proc *parent = (*curr_pid).parent;
+    release(&(*curr_pid).lock);
+
+    counted++;
+    m++;
+    curr_pid = parent;
+  }
+
+  struct proc *a = myproc();
+  if (copyout((*a).pagetable,(*a).sz, d_ptr, (char *)my_data, sizeof(my_data)) < 0) {
+    return -1;
+  }
+
+  return counted;
+}
+//CHANGE ENDS
+
+//practice
+
