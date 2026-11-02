@@ -57,3 +57,4 @@ entry("sched_setaffinity");
 entry("sched_getaffinity");
 entry("schedpolicy");
 entry("setprio");
+entry("getpids");

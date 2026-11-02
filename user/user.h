@@ -41,6 +41,7 @@ int sched_setaffinity(int pid, int mask);
 int sched_getaffinity(int pid);
 int schedpolicy(int policy);
 int setprio(int pid, int prio);
+int getpids(int *pid, int max);
 //CHANGE ENDS!
 
 // ulib.c

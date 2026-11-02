@@ -509,3 +509,34 @@ sys_setprio(void)
   }
   return -1;
 }
+
+uint64
+sys_getpids(void){
+  int size;
+  uint64 address;
+  argint(1, &size); //Get the size first.
+
+  int pids[NPROC];
+  argaddr(0, &address);
+
+  struct proc *p;
+  int i = 0;
+  for(p = proc; p < &proc[NPROC]; p++) {
+    acquire(&(*p).lock);
+    if((*p).state != UNUSED) {
+      if(i < size) {
+        pids[i] = (*p).pid;
+        i++;
+      }
+    }
+    release(&(*p).lock);
+  }
+
+  struct proc *a;
+  a = myproc();
+  if(copyout((*a).pagetable, (*a).sz, address, (char *)&pids, sizeof(pids)) < 0) {
+    return -1;
+  }
+
+  return i;
+}

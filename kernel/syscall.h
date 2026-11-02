@@ -35,3 +35,4 @@
 #define SYS_sched_getaffinity 34
 #define SYS_schedpolicy       35
 #define SYS_setprio           36
+#define SYS_getpids           37

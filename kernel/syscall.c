@@ -117,6 +117,7 @@ extern uint64 sys_sched_setaffinity(void);
 extern uint64 sys_sched_getaffinity(void);
 extern uint64 sys_schedpolicy(void);
 extern uint64 sys_setprio(void);
+extern uint64 sys_getpids(void);
 // An array mapping syscall numbers from syscall.h
 // to the function that handles the system call.
 static uint64 (*syscalls[])(void) = {
@@ -157,6 +158,7 @@ static uint64 (*syscalls[])(void) = {
   [SYS_sched_getaffinity] sys_sched_getaffinity,
   [SYS_schedpolicy]       sys_schedpolicy,
   [SYS_setprio]           sys_setprio,
+  [SYS_getpids]           sys_getpids 
   // clang-format on
 };
 
