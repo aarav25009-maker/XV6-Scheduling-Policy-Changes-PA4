@@ -159,6 +159,7 @@ UPROGS=\
 	$U/_spin\
 	$U/_priotest\
 	$U/_schedctl\
+	$U/_xtop\
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)
