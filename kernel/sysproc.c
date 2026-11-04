@@ -532,11 +532,15 @@ sys_getpids(void){
     release(&(*p).lock);
   }
 
-  struct proc *a;
-  a = myproc();
-  if(copyout((*a).pagetable, (*a).sz, address, (char *)&pids, sizeof(pids)) < 0) {
+  if(size < 0)
+    return -1;
+
+  struct proc *a = myproc();
+  if(i > 0 && copyout((*a).pagetable, (*a).sz, address,
+                      (char *)pids, i * sizeof(int)) < 0) {
     return -1;
   }
+  
 
   return i;
 }
